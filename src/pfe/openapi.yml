@@ -1,0 +1,1900 @@
+openapi: 3.0.0
+# servers:
+#   - description: Production
+#     url: http://localhost:9090
+info:
+  description: Codewind API
+  version: 0.1.0
+  title: Codewind API
+  contact:
+    name: API support
+    email: example@ibm.com
+  license:
+    name: Codewind Developer License
+    url: 'https://github.com/eclipse/codewind/blob/master/LICENSE'
+
+# tags:
+  # - name: users
+  #   description: Operations available to regular users
+  # - name: admin
+  #   description: Operations available only to authenticated admins
+paths:
+  /ready:
+    get:
+      summary: Return true when codewind is ready to accept requests
+      responses:
+        200:
+          description: Status of codewind as a boolean
+
+  /api/v1/environment:
+    get:
+      summary: Get information on the current environment
+      responses:
+        200:
+          description: Returned information about the current environment successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - running_in_k8s
+                  - user_string
+                  - socket_namespace
+                  - codewind_version
+                  - os_platform
+                  - tekton_dashboard
+                properties:
+                  running_in_k8s:
+                    type: boolean
+                    example: false
+                  user_string:
+                    type: string
+                    nullable: true
+                  socket_namespace:
+                    type: string
+                    example: '/default'
+                  codewind_version:
+                    type: string
+                    example: '/latest'
+                  os_platform:
+                    type: string
+                    example: 'Linux'
+                  tekton_dashboard_url:
+                    type: object
+                    properties:
+                      status:
+                        type: boolean
+                      message:
+                        type: string
+                      url:
+                        type: string
+                    example:
+                      status: true
+                      message: ''
+                      url: '9.20.195.90.nip.io'
+                    description: "An object containing the Ingress URL of Tekton dashboard. If the dashboard is configured and available status=true, if not available then status=false along with a message providing more information."
+                  workspace_location:
+                    type: string
+                    example: '/home/user/codewind-workspace'
+        500:
+          description: Internal error occurred
+  /api/v1/projects:
+    get:
+      summary: List all projects Codewind is aware of
+      responses:
+        200:
+          description: Got all projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+
+  /api/v1/projects/{id}/build:
+    post:
+      summary: Build a given project
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      requestBody:
+        description: JSON object with the action for the build
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  description: 'Action for build'
+                  type: string
+                  enum: ['build', 'enableautobuild, disableautobuild']
+      responses:
+        202:
+          description: Build successful
+        400:
+          description: Project with given projectID not found
+        500:
+          description: Internal error
+
+  /api/v1/projects/{id}/open:
+    put:
+      summary: Open project
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: Project successfully opened
+        404:
+          description: Project with given projectID not found
+
+  /api/v1/projects/{id}/close:
+    post:
+      summary: Send project close request
+      description: >
+        Project close is asynchronous. A return of 202 indicates that the request to close has been accepted.
+        When the close operation completes, a projectClosed socket event will be emitted.
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        202:
+          description: Project close request accepted
+        404:
+          description: Project with given projectID not found
+        409:
+          description: Project is closing or closed
+
+  /api/v1/projects/{id}/restart:
+    post:
+      summary: Restart a project
+      description: >
+        There are 3 start modes ('run', 'debug', and 'debugNoInit'). 3 project types that can be restarted.
+        Microprofile can start in run or debug mode.
+        If restarted in debug mode, it will hang in the starting state until debugger attaches.
+        Spring can start in run, debug or debugNoInit modes.
+        If restarted in debug mode, it will hang in the starting state until debugger attaches.
+        To start normally but allow a debugger to connect later use debugNoInit.
+        Node can start in run, debug or debugNoInit modes.
+        Both debug modes are treated equally.
+      parameters:
+      - name: id
+        in: path
+        schema:
+          $ref: '#/components/schemas/ProjectID'
+        required: true
+        description: id of project
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - startMode
+              properties:
+                startMode:
+                  type: string
+                  enum: ['run', 'debug', 'debugNoInit']
+      responses:
+        202:
+          description: Successfully initiated restart
+        400:
+          description: Invalid request
+        404:
+          description: Project with given projectID not found
+        500:
+          description: Internal error
+
+  /api/v1/projects/bind/start:
+    post:
+      summary: Begin binding a project to Codewind
+      description: >
+        Start binding a project to codewind. The bind api will be passed the location on disk of an existing project so that Codewind
+        adds it to the list of projects it monitors. The project will initially be created in disabled state.
+      requestBody:
+        description: project bind start options
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - path
+                - language
+                - projectType
+                - creationTime
+              properties:
+                name:
+                  $ref: '#/components/schemas/ProjectName'
+                path:
+                  description: the absolute path on the file system to the project
+                  type: string
+                  example: /Documents/projectDir/
+                language:
+                  $ref: '#/components/schemas/ProjectLanguage'
+                projectType:
+                  $ref: '#/components/schemas/ProjectType'
+                creationTime:
+                  description: the time in milliseconds since epoch that the project was bound to Codewind
+                  type: number
+                  example: 1574256801163
+
+      responses:
+        202:
+          description: >
+            Bind start request accepted. Will attempt to bind the provided path as a Codewind project.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        400:
+          $ref: '#/components/responses/400'
+        409:
+          description: The project path or name are already in use
+        500:
+          description: Any other error
+
+  /api/v1/projects/{id}/bind/end:
+    post:
+      summary: Complete binding the project to Codewind
+      description: >
+        Complete binding the project to codewind. The project will be enabled and built.
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of the project
+      responses:
+        202:
+          description: >
+            Bind end request accepted. Will attempt to complete binding the Codewind project.
+        404:
+          description: Project with given projectiD was not found.
+        500:
+          description: Any other error
+
+  /api/v1/projects/{id}/upload:
+    put:
+      summary: Receive gzipped content of a file for the project and write this to the codewind workspace
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      requestBody:
+          description: JSON object containing file info and content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Upload'
+
+      responses:
+        200:
+          description: The file upload was successful
+        404:
+          description: Project with given projectID not found
+        500:
+          description: Any other error
+
+  /api/v1/projects/{id}/upload/end:
+    post:
+      summary: Mark the completion of a number of upload events for this project.
+      description: >
+        Complete the upload process for this project. If enabled, the project will be built.
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of the project
+      requestBody:
+          description: JSON object containing project information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadEnd'
+      responses:
+        200:
+          description: >
+            The project uploads completed successfully and it will now be built.
+        404:
+          description: Project with given projectiD was not found.
+        500:
+          description: Any other error
+
+
+  /api/v1/projects/{id}:
+    get:
+      summary: Get the project object for a single project
+      description: Get the project object for the object specified by {id}
+      parameters:
+        - name: id
+          in: path
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: The project was found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        404:
+          description: The project was not found
+        500:
+          description: Any other error
+
+  /api/v1/projects/{id}/loadtest:
+    post:
+      summary: Run load against a project
+      description: Run a load test against a project with the specified id
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      requestBody:
+        description: An optional description of the test run
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  description: "A description of the test"
+                  example: "A new load test"
+      responses:
+        202:
+          description: Request to run-load accepted
+        404:
+          description: Project not found
+        409:
+          description: Load test already in progress
+        503:
+          description: Project is not running
+
+  /api/v1/projects/{id}/loadtest/cancel:
+    post:
+      summary: Cancels a load-test against a project
+      description: Cancel a load-test against a given project
+      parameters:
+          - name: id
+            in: path
+            schema:
+              type: string
+            required: true
+            description: id of project
+      responses:
+        200:
+          description: Successful
+        404:
+          description: Project with given projectID not found
+        409:
+          description: No run in progress for this project
+        500:
+          description: Internal error
+
+  /api/v1/projects/{id}/capabilities:
+    get:
+      summary: Get a list of supported capabilities for the project
+      parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: id of project
+      responses:
+        200:
+          description: Successfully completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  startModes:
+                    type: array
+                    items:
+                      type: string
+                      enum: ['run', 'debug']
+                  controlCommands:
+                    type: array
+                    items:
+                      type: string
+                      enum: ['restart']
+        404:
+          description: Project with given projectID not found
+        500:
+          description: Internal error occurred
+
+  /api/v1/projects/{id}/loadtest/config:
+    post:
+      summary: Writes to runLoad/config.json for a project
+      description: Writes a valid json to the config file used by loadrunner
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      requestBody:
+        description: The config.json object, with all fields required
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadrunnerConfig'
+      responses:
+        200:
+          description: Write to runLoad/config.json successful
+          content:
+            application/json:
+              schema:
+                type: string
+        400:
+          description: Incorrect parameters given
+        404:
+          description: Project with given projectID not found
+        500:
+          description: Internal error
+
+    get:
+      summary: Reads the runLoad/config.json
+      description: Reads the runLoad/config.json. If it does not exist, a file with default parameters will be created
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: Successful read of config.json file
+          content:
+            application/json:
+              schema:
+               $ref: '#/components/schemas/LoadrunnerConfig'
+        400:
+          description: Incorrect parameters given
+        404:
+          description: Project not found
+        500:
+          description: Internal error
+
+  /api/v1/projects/{id}/unbind:
+      post:
+        summary: Unbind a given project from codewind
+        description: >
+          This requests Codewind unbinds the project location for the project with the specified id.
+          Codewind will emit a `projectDeletion` event on completion.
+        parameters:
+          - in: path
+            name: id
+            schema:
+              type: string
+            required: true
+            description: id of project
+        responses:
+          202:
+            description: if project deletion was accepted
+          404:
+            description: if the project with id was not found
+          409:
+            description: if unbind was already in progress
+          500:
+            description: internal error, includes an error message string if available
+
+  /api/v1/projects/{id}/compare:
+    get:
+      summary: Compare previous two metrics test runs
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: >
+            An array of metrics returned as type value pairs.
+            The values are the +/- percentage change (i.e. delta) between the previous two test runs.
+            The delta value can be a single number, an object, or an array of objects.
+            The comparison is only created for data that is common between the two files.
+            If a piece of data is missing from one of the two files, a "Data unavailable" message will be returned for that given piece of data, alongside the successfully compared data.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  example: { "type" : "cpu", "delta" : {"systemMean" : 1.352, "systemPeak" : 1.956, "processMean" : -7.334, "processPeak"  : -9.469} }
+        404:
+          description: Specified project doesn't exist, or snapshot is not available (e.g. less than two runs collected for the project)
+        500:
+          description: Internal error occurred
+
+  /api/v1/projects/{id}/logs:
+    get:
+      summary: Retrieve the list of logs available for a project.
+      description: >
+        This requests the list of logs currently available for a project.
+        This list may change over time as a project is built and run.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: Lists of the logs available grouped by type, build or app.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogDetails'
+                  app:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogDetails'
+        404:
+          description: if the project with id was not found
+    post:
+      summary: Start streaming all logs for a given project
+      description: >
+        This requests that all logs currently available for a project start streaming.
+        Logs are sent over socket.io via the 'log-update' event. When a log is enabled
+        for streaming it's current content is sent in one or more 'log-update' events and
+        then any further updates are sent via further 'log-update' events as they occur.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: Lists of the logs that have been enabled grouped by type, build or app.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogDetails'
+                  app:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogDetails'
+        404:
+          description: if the project with id was not found
+        500:
+          description: if an error occurred
+    delete:
+      summary: Stop streaming any enabled logs for a project.
+      description: >
+        This stops all current log streams for a project.
+        If the log streams are re-enabled later then the logs will be sent from the beginning
+        again.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: if the log streams were successfully stopped
+        404:
+          description: if the project with id was not found
+        500:
+          description: if an error occurred
+  /api/v1/projects/invalidNameChars:
+    get:
+      summary: Get the list of characters that cannot be used in a project name
+      responses:
+        200:
+          description: The list of characters that are invalid for a project name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  illegalNameChars:
+                    type: array
+                    items:
+                      type: string
+                      minItems: 10
+                      enum: ['&', '/', '?', '%', '*', ':', '|', '<', '>', ' ']
+        500:
+          description: if error occurred
+
+  /api/v1/projects/{id}/logs/{type}/{name}:
+    post:
+      summary: Start streaming one log for a given project
+      description: >
+        This requests that the specified log for a project starts streaming.
+        Logs are sent over socket.io via the 'log-update' event. When a log is enabled
+        for streaming its current content is sent in one or more 'log-update' events and
+        then any further updates are sent via further 'log-update' events as they occur.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+        - in: path
+          name: type
+          schema:
+            type: string
+            enum: ['app', 'build']
+          required: true
+          description: type of log
+        - in: path
+          name: name
+          schema:
+            type: string
+          required: true
+          description: name of log
+      responses:
+        200:
+          description: if the log stream was successfully enabled
+        404:
+          description: if the project or the specified log were not found
+        500:
+          description: if an error occurred
+    delete:
+      summary: Stop streaming one log for a given project
+      description: >
+        This requests that streaming stops for the specified log.
+        If the log stream is re-enabled later then the log will be sent from the beginning.
+        again.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+        - in: path
+          name: type
+          schema:
+            type: string
+            enum: ['app', 'build']
+          required: true
+          description: type of log
+        - in: path
+          name: name
+          schema:
+            type: string
+          required: true
+          description: name of log
+      responses:
+        200:
+          description: if the log stream was successfully stopped
+        404:
+          description: if the project with id was not found
+        500:
+          description: if an error occurred
+
+  /api/v1/projects/{id}/metrics:
+    get:
+      summary: Get available metrics types with their associated endpoints
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: list of objects containing available metric types as strings with their associated endpoints for example
+          content:
+            application/json:
+                schema:
+                 type: array
+                 items:
+                  type: object
+                  example: {"type":"cpu", "endpoint":"/metrics/cpu"}
+        404:
+          description: if the project with id was not found
+        500:
+          description: internal error occurred
+
+  /api/v1/locale:
+    post:
+      summary: Sets the backend locale
+      requestBody:
+        description: JSON array with the list of locales in priority order.
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - locale
+              properties:
+                locale:
+                  type: array
+                  example: [ 'en-us', 'en' ]
+      responses:
+        200:
+          description: Language correctly set
+        500:
+          description: Internal error occurred
+
+
+  /api/v1/projects/{id}/metrics/{testRunTime}:
+    put:
+      summary: Add or update the description of the results for a specified loadtest on a project
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+        - in: path
+          name: testRunTime
+          schema:
+            $ref: '#/components/schemas/testRunTime'
+          required: true
+          description: Time of loadtest run
+      requestBody:
+        description: New description for the load-test-results
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                  example: 'new description'
+      responses:
+        200:
+          description: Successful
+        400:
+          description: Project with given projectID not found
+        404:
+          description: Load test results do not exist
+        500:
+          description: Internal error
+    delete:
+      summary: Delete the results of a specified load-test run on a project.
+      parameters:
+        - in: path
+          name: id
+          schema:
+            $ref: '#/components/schemas/ProjectID'
+          required: true
+          description: id of project
+        - in: path
+          name: testRunTime
+          schema:
+            $ref: '#/components/schemas/testRunTime'
+          required: true
+          description: Time of loadtest run
+      responses:
+        200:
+          description: Successful
+        404:
+          description: Project or load test results do not exist
+        500:
+          description: Internal error
+
+  /api/v1/projects/{id}/metrics/inject:
+    post:
+      summary: Enable auto injection of metrics
+      description: >
+        Injects metrics collector into project, or remove injected collector from project
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      requestBody:
+        description: Value indicating whether metrics should be injected
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - enable
+              properties:
+                enable:
+                  type: boolean
+      responses:
+        202:
+          description: Successful update of project information and build triggered
+          content:
+            application/json:
+              schema:
+                type: object
+        404:
+          description: Project not found
+
+
+  /api/v1/projects/{id}/metrics/types:
+    post:
+      summary: Get project metrics of a certain type
+      description: >
+        Get all metrics for a certain type or types of metric, for a specific
+        project as specified by the project ID.
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      requestBody:
+        description: Metric types to get metrics for
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - types
+              properties:
+                types:
+                  description: Array of the metric types to get metrics for
+                  type: array
+                  example: [cpu, memory]
+      responses:
+        200:
+          description: >
+            Array of data points in JSON format, as time/value pairs grouped by types.
+            Times are the start time of the load test as Unix Epoch time in milliseconds.
+            The value can be a single number, an object, or an array of objects.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cpu:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CpuMetric'
+                  memory:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BasicMetric'
+
+  /api/v1/projects/{id}/metrics/status:
+    get:
+      summary: Check if a project can support metrics
+      description: Investigates the build-file of a project to determine if it supports the metrics dashboard
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+      responses:
+        200:
+          description: The metrics status check completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metricsAvailable:
+                    type: boolean
+                    example: true
+        400:
+          description: Project build file not found in project directory (pom.xml, package.json or Package.swift)
+        404:
+          description: Project not found
+
+  /api/v1/templates:
+    get:
+      summary: List all templates Codewind is aware of
+      parameters:
+        - name: projectStyle
+          in: query
+          schema:
+            type: string
+          required: false
+          description: Specify this to filter templates returned by project style
+        - name: showEnabledOnly
+          in: query
+          schema:
+            type: string
+            enum: ['true', 'false']
+          required: false
+          description: Set this to 'true' to return only templates from enabled repositories
+      responses:
+        200:
+          description: Returns all the templates that Codewind can generate a project from
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Template'
+        204:
+          description: No templates found
+
+  /api/v1/templates/repositories:
+    get:
+      summary: List all template repositories Codewind is aware of
+      responses:
+        200:
+          description: Returns all the templates repositories that Codewind will use to find templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateRepo'
+    post:
+      summary: Make Codewind aware of a template repository
+      requestBody:
+        description: repository details
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateRepo'
+      responses:
+        200:
+          description: Returns all the templates repositories that Codewind will use to find templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateRepo'
+        400:
+          description: Bad request
+    delete:
+      summary: Remove a template repository from the list Codewind is aware of
+      requestBody:
+        description: repository details
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+      responses:
+        200:
+          description: Returns all the templates repositories that Codewind will use to find templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateRepo'
+        400:
+          description: Bad request
+        404:
+          description: Template repository not found
+          content:
+            text/html:
+              schema:
+                type: string
+  /api/v1/batch/templates/repositories:
+    patch:
+      summary: Batch change settings for a template repository of which Codewind is aware
+      requestBody:
+        description: repository settings
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/TemplateRepoSetting'
+      responses:
+        207:
+          description: Returns success/failure statuses of settings operations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - status
+                    - requestedOperation
+                  properties:
+                    status:
+                      type: integer
+                    requestedOperation:
+                      $ref: '#/components/schemas/TemplateRepoSetting'
+                    error:
+                      type: string
+  /api/v1/templates/styles:
+    get:
+      summary: List all project styles for which Codewind has templates
+      responses:
+        200:
+          description: Returns all project styles for which Codewind has templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  description: project style
+                  type: string
+                  enum: ['Codewind', 'Appsody']
+  /api/v1/project-types:
+    get:
+      summary: List all project types Codewind is aware of
+      responses:
+        200:
+          description: Returns the list of supported project types a project can be bound as
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectTypeDescriptor'
+        204:
+          description: No templates found
+
+  /api/v1/logging:
+    put:
+      summary: Overwrite the default logging level of the Portal container
+      requestBody:
+        description: Location on disk
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - level
+              properties:
+                level:
+                  type: string
+                  enum: ['trace', 'debug', 'info', 'warn', 'error']
+      responses:
+        200:
+          description: Successful
+        400:
+          description: Bad request
+        500:
+          description: Internal Error
+    get:
+      summary: Get all logging information for the Portal container
+      responses:
+        200:
+          description: Successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentLevel:
+                    type: string
+                    example: 'debug'
+                  defaultLevel:
+                    type: string
+                    example: 'info'
+                  allLevels:
+                    type: array
+                    items:
+                      type: string
+                      example: ['trace', 'debug', 'info', 'warn', 'error']
+        500:
+          description: Internal Error
+
+  /api/v1/projects/watchlist:
+    get:
+      summary: List the files that should not be monitored for changes for each open project that has been added to codewind
+      responses:
+        200:
+          description: Got the watchedList for all open projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WatchList'
+        500:
+          description: if an error occured
+
+  /api/v1/projects/{id}/file-changes/{projectWatchStateId}/status:
+    put:
+      summary: Report the project watch state, either success or failed,  for a particular projectWatchStateId
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+        - name: projectWatchStateId
+          in: path
+          schema:
+            type: string
+          required: true
+          description: projectWatchStateId represents a file watching client's current state. projectWatchStateId is generated and returned when first time calling the endpoint `GET /api/v1/projects/watchlist`. Additionally, if the ignored paths list for a project is changed, a new projectWatchStateId is generated and sent to file watchers via WebSocket event from `/websockets/file-changes/v1`
+        - name: clientUUID
+          in: query
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: a unique id of the client
+      requestBody:
+        description: A JSON object to report the project watch state, either success or failed
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - success
+              properties:
+                success:
+                  type: boolean
+                  example: true
+
+      responses:
+        200:
+          description: if successfully received the request
+        400:
+          $ref: '#/components/responses/400'
+        404:
+          $ref: '#/components/responses/404'
+        500:
+          $ref: '#/components/responses/500'
+
+  /api/v1/projects/:id/file-changes:
+    post:
+      summary: Notify the event occurrance with a list of changed files of the project
+      parameters:
+        - name: id
+          in: path
+          schema:
+            type: string
+          required: true
+          description: id of project
+        - name: timestamp
+          in: query
+          schema:
+            type: number
+          required: true
+          description: timestamp of this file change event
+        - name: chunk
+          in: query
+          schema:
+            type: number
+          required: true
+          description: chunk number of this current chunk
+        - name: chunk_total
+          in: query
+          schema:
+            type: number
+          required: true
+          description: total chunks expected for this timestamp
+      requestBody:
+        description: A JSON array of which file paths have changed, which is then compressed with zlib, then converted to base64. The example shows JSON content before converted to base64
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - msg
+              properties:
+                msg:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FileChangeList'
+      responses:
+        200:
+          description: if successfully received the request
+        400:
+          $ref: '#/components/responses/400'
+        404:
+          $ref: '#/components/responses/404'
+        500:
+          $ref: '#/components/responses/500'
+  /api/v1/registrysecrets:
+    post:
+      summary: Create a Docker registry secret in Codewind PFE
+      description: >
+        This will create or update the Codewind PFE Docker config registry `/root/.docker/config.json`. In Kubernetes environment, a secret is then created with the base64 encoded value of the Docker config file and the Service Account is then patched with the created Kubernetes secret.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - address
+                - credentials
+              properties:
+                address:
+                  type: string
+                credentials:
+                  type: string
+                  description: base64 encoded value of object { username:"username", password:"password" }
+      responses:
+        201:
+          description: Successfully created. Returns an updated list of the registry secrets in Codewind PFE.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      description: Registry address
+                      example: docker.io
+                    username:
+                      type: string
+                      description: Registry username
+                      example: username
+        400:
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Reason for the bad request
+                example: Cannot have multiple docker registries with url <url>. Please delete the previous registry and try again.
+        500:
+          description: Internal Server Error
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Reason for the internal error
+                example: Failed to create the Codewind Registry Kubernetes Secret and/or patch the Service Account.
+    get:
+      summary: Get all the Docker registry secrets in Codewind PFE
+      description: >
+        This will get the Docker registry secrets in Codewind PFE. The API returns a list of the available registries in the PFE container.
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      description: Registry address
+                      example: docker.io
+                    username:
+                      type: string
+                      description: Registry username
+                      example: username
+        500:
+          description: Internal Server Error
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Reason for the internal error
+                example: Failed to get the Codewind Docker Config Registries
+    delete:
+      summary: Delete a Docker registry secret from Codewind PFE
+      description: >
+        This will update the Codewind PFE Docker config registry `/root/.docker/config.json` and remove the specified secret. In Kubernetes environment, a secret is then created with the base64 encoded value of the Docker config file and the Service Account is then patched with the created Kubernetes secret.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - address
+              properties:
+                address:
+                  type: string
+      responses:
+        200:
+          description: OK. Returns an updated list of the registry secrets in Codewind PFE.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    address:
+                      type: string
+                      description: Registry address
+                      example: docker.io
+                    username:
+                      type: string
+                      description: Registry username
+                      example: username
+        400:
+          description: Bad Request
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Reason for the bad request
+                example: No Docker Config file present, no Docker Registry to remove from the list.
+        500:
+          description: Internal Server Error
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Reason for the internal error
+                example: Failed to create the Codewind Registry Kubernetes Secret and/or patch the Service Account.
+
+
+  /api/v1/imagepushregistry:
+    get:
+      summary: Get the status of the Image Push Registry in the Workspace Settings File
+      responses:
+        200:
+          description: Successfully completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imagePushRegistry:
+                    type: boolean
+                    description: true if image push registry was set
+                    example: true
+                  address:
+                    type: string
+                    description: registry address, if image push registry is true
+                    example: "docker.io"
+                  namespace:
+                    type: string
+                    description: registry namespace, if image push registry is true
+                    example: "docker.io"
+        500:
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imagePushRegistry:
+                    type: boolean
+                    description: false if image push registry was not set
+                    example: false
+    post:
+      summary: Test or set the specified Image Push Registry
+      description: >
+        On test the API also emits a socket event `imagePushRegistryStatus` with data
+        `{imagePushRegistryTest ":" true, msg ":" message related to the socket for pass/failure}`
+        A set operation will set the registry without testing to allow the client to force save the
+        value.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - address
+                - namespace
+              properties:
+                address:
+                  type: string
+                namespace:
+                  type: string
+                operation:
+                  type: string
+                  enum:
+                    - test
+                    - set
+      responses:
+        200:
+          description: Successfully completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    description: The response status code
+                    example: 200
+                  imagePushRegistryTest:
+                    type: boolean
+                    description: true if image push registry is valid
+                    example: true
+                  msg:
+                    type: string
+                    description: Message related to the request
+                    example: Success message
+        400:
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    description: The response status code
+                    example: 400
+                  imagePushRegistryTest:
+                    type: boolean
+                    description: false because it is a bad request
+                    example: false
+                  msg:
+                    type: string
+                    description: Message related to the request
+                    example: Reason for failure
+        500:
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  statusCode:
+                    type: integer
+                    description: The response status code
+                    example: 500
+                  imagePushRegistryTest:
+                    type: boolean
+                    description: false if image push registry is invalid
+                    example: false
+                  msg:
+                    type: string
+                    description: Message related to the request
+                    example: Reason for failure
+
+  /api/v1/extensions:
+    get:
+      summary: List all extensions Codewind is aware of
+      responses:
+        200:
+          description: Returns the list of Codewind extensions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Extension'
+        500:
+          description: if an error occurred
+
+  /api/v1/ignoredPaths:
+    get:
+      summary: Get the ignoredPaths for a projectType
+      parameters:
+        - name: projectType
+          in: query
+          schema:
+            $ref: '#/components/schemas/ProjectType'
+          required: true
+          description: Type of project
+      responses:
+       200:
+          description: The build type for the project. Built-in types are 'liberty', 'spring', 'swift', 'nodejs', and 'docker'.
+          content:
+            application/json:
+                schema:
+                  type: array
+                  items:
+                    type: string
+                    example: "/Dockerfile-tools"
+       500:
+          description: Internal Server Error
+
+components:
+  schemas:
+    Project:
+      type: object
+      required:
+        - projectID
+        - name
+        - language
+        - projectType
+        - host
+        - ports
+      properties:
+        projectID:
+          $ref: '#/components/schemas/ProjectID'
+        name:
+          $ref: '#/components/schemas/ProjectName'
+        language:
+          $ref: '#/components/schemas/ProjectLanguage'
+        projectType:
+          $ref: '#/components/schemas/ProjectType'
+        host:
+          type: integer
+          example: localhost
+        ports:
+          type: integer
+          example: 31234
+    ProjectID:
+      type: string
+      format: uuid
+      example: d290f1ee-6c54-4b01-90e6-d701748f0851
+      pattern: '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+    ProjectName:
+      description: Name of project, cannot contain any of ", &, /, \\, ?, %, *, :, |, <, > or spaces
+      type: string
+      example: tobesproject
+    ProjectLanguage:
+      type: string
+    ProjectType:
+      description: the build type for the project. Built-in types are 'liberty', 'spring', 'swift', 'nodejs', and 'docker'.
+      type: string
+    ProjectTypeDescriptor:
+      description: Descriptor of a project type, including possible subtypes
+      type: object
+      required:
+        - projectType
+        - projectSubtypes
+      properties:
+        projectType:
+          $ref: '#/components/schemas/ProjectType'
+        projectSubtypes:
+          $ref: '#/components/schemas/ProjectSubtypesDescriptor'
+    ProjectSubtype:
+      description: A project subtype defined by a project extension
+      type: object
+      required:
+        - id
+        - label
+      properties:
+        id:
+          type: string
+        version:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+    ProjectSubtypesDescriptor:
+      description: Descriptor for subtypes of a project type
+      type: object
+      required:
+        - items
+      properties:
+        label:
+          description: A name label to refer to the subtype
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectSubtype'
+    testRunTime:
+      description: The time of a load-test run, whose format is yyyymmddHHMMss
+      type: number
+      example: 20190326154749
+    Template:
+      type: object
+      required:
+        - label
+        - description
+        - language
+        - url
+        - projectType
+      properties:
+        label:
+          type: string
+          example: "python hello world"
+        description:
+          type: string
+          example: "python microservice"
+        language:
+          type: string
+          example: "python"
+        url:
+          type: string
+          example: "https://github.com/codewind-resources/pythonTemplate"
+        projectType:
+          type: string
+          example: "docker"
+        source:
+          type: string
+          example: "Default Codewind Templates"
+        sourceId:
+          type: string
+    TemplateRepo:
+      type: object
+      required:
+        - url
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        projectStyles:
+          type: array
+          items:
+            type: string
+          example: ['Codewind', 'Appsody']
+        enabled:
+          type: boolean
+    TemplateRepoSetting:
+      type: object
+      required:
+        - op
+        - url
+        - value
+      properties:
+        op:
+          description: repository setting to change
+          type: string
+          enum: [enable]
+        url:
+          description: url of the modified template repository
+          type: string
+          example: https://raw.githubusercontent.com/codewind-resources/codewind-templates/master/devfiles/index.json
+        value:
+          type: string
+          example: 'true'
+    BasicMetric:
+      properties:
+        time:
+          type: integer
+          example: 1530537586856
+        endTime:
+          type: integer
+          example: 1530537586979
+        value:
+          type: object
+    CpuMetric:
+      allOf:
+        - $ref: '#/components/schemas/BasicMetric'
+        - type: object
+          properties:
+            value:
+              properties:
+                systemMean:
+                  type: number
+                  example: 0.352322
+                systemPeak:
+                  type: number
+                  example: 0.956481
+                processMean:
+                  type: number
+                  example: 0.070466
+                processPeak:
+                  type: number
+                  example: 0.090362
+    UploadEnd:
+      type: object
+      required:
+        - timestamp
+        - fileList
+        - directoryList
+        - modifiedList
+      properties:
+        timestamp:
+          description: time since epoch of last upload
+          type: number
+          example: 157139320301
+        fileList:
+          description: an array of all files the project contains
+          type: array
+          example: ["/project/file1", "/project/file2", "project/modifiedfile1"]
+        directoryList:
+          description: an array of all directories the project contains
+          type: array
+          example: ["/project"]
+        modifiedList:
+          description: an array of files that have been modified since the last project upload
+          type: array
+          example: ["/project/modifiedfile1"]
+
+    Upload:
+      type: object
+      required:
+        - path
+        - msg
+      properties:
+        path:
+          description: the path of the file, relative to the project directory
+          type: string
+          example: "/project1/src/file1"
+        msg:
+          description: the gzipped file content
+          type: string
+          example: "gzipped file content"
+        mode:
+          type: number
+          description: the permissions for the file https://nodejs.org/api/fs.html#fs_file_modes
+          example: 0o775
+
+    LoadrunnerConfig:
+      type: object
+      required:
+        - path
+        - requestsPerSecond
+        - concurrency
+        - maxSeconds
+      properties:
+        path:
+          description: The HTTP endpoint that loadrunner will hit
+          type: string
+          example: "/loadtest"
+        query:
+          description: The query parameters to be hit with loadrunner (optional)
+          type: object
+          example: { a : '1', b : '2' }
+        requestsPerSecond:
+          description: The rate of requests made by loadrunner
+          type: string
+          example: "200"
+        concurrency:
+          description: The number of concurrent threads
+          type: string
+          example: "200"
+        maxSeconds:
+          description: The maximum duration for loadrunner to run
+          type: string
+          example: "20"
+        method:
+          description: The type of request loadrunner will make
+          type: string
+          example: "GET"
+        body:
+          description: A JSON body object that will sent with each load run request
+          oneOf:
+            - type: object
+              example: { id: 1, message: 'codewind' }
+            - type: string
+              example: "{ id: 1, message: 'codewind'}"
+
+    LogDetails:
+      type: object
+      required:
+        - logName
+      properties:
+        logName:
+          type: string
+          example: 'docker.build.log'
+        workspaceLogPath:
+          type: string
+    WatchList:
+      type: object
+      required:
+        - projectID
+        - pathToMonitor
+        - ignoredPaths
+        - projectWatchStateId
+        - projectCreationTime
+      properties:
+        projectID:
+          $ref: '#/components/schemas/ProjectID'
+        pathToMonitor:
+          description: the absolute path on the file system to the project
+          type: string
+          example: /Documents/projectDir/
+        ignoredPaths:
+          description: regex of paths to be ignored for changes
+          type: array
+          example: [ "/target", "/.m2", "*/.git/*" ]
+        projectWatchStateId:
+          description: projectWatchStateId represents a file watching client's current state. projectWatchStateId is generated and returned when first time calling the endpoint `GET /api/v1/projects/watchlist`. Additionally, if the ignored paths list for a project is changed, a new projectWatchStateId is generated and sent to file watchers via WebSocket event from `/websockets/file-changes/v1`
+          type: string
+          format: uuid
+          example: "e3f3ba629b5a9e75ebb0818934575a66"
+        projectCreationTime:
+          description: the time in millisconds since epoch that the project was last updated in codewind
+          type: number
+          example: 1576080088223
+    FileChangeList:
+        type: object
+        required:
+          - path
+          - timestamp
+          - type
+          - directory
+        properties:
+          path:
+            description: the absolute path on the file system to the file
+            type: string
+            example: Documents/projectDir/File1
+          timestamp:
+            description: the timestamp of this change
+            type: number
+            example: 2117514496
+          type:
+            description: the change type, one of the following CREATE / MODIFY / DELETE
+            type: string
+            example: CREATE
+          directory:
+            description: true or false, on whether the path refers to a directory
+            type: boolean
+            example: false
+    Extension:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "knappExtension"
+        version:
+          type: string
+          example: "1.0.0"
+        description:
+          type: string
+          example: "Codewind extension for knapp support"
+        commands:
+          items:
+            $ref: '#/components/schemas/ExtensionCommand'
+        detection:
+          type: string
+          example: "knap_config.yaml"
+        templates:
+          type: string
+          example: "https://github.com/microclimate-dev2ops/myTemplates"
+        config:
+          description: Extra configuration properties for the extension
+          type: object
+    ExtensionCommand:
+      type: object
+      properties:
+        name:
+          type: string
+        command:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+
+  responses:
+    400:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: string
+    404:
+      description: The specified resource was not found.
+      content:
+        application/json:
+          schema:
+            type: string
+    500:
+      description: Internal error occurred.
+      content:
+        application/json:
+          schema:
+            type: string
